@@ -34,8 +34,9 @@ Windows. Sleep and its wake sources: `docs/sleep.md`. The 5G modem: `docs/modem.
   `qcnspmcdm_ext_cdsp8380*`, `qcdx8380*`); Fedora's `qcom-firmware` has no Denali directory. The Denali tree
   requests `qcadsp8380.mbn`, `adsp_dtb.mbn`, `qccdsp8380.mbn`, `cdsp_dtb.mbn` and the zap shader
   `qcdxkmsuc8380.mbn`; the OLED tree also requests, from 7.2.11 revision 6, the video codec's `qcvss8380.mbn` (in
-  `qcdx8380*`, shipped since support 3.8). The LCD tree does not enable the codec, so its support RPM ships no
-  `qcvss8380.mbn`. Windows' `adsp_dtbs.elf` and `cdsp_dtbs.elf` get the DT names.
+  `qcdx8380*`, shipped since support 3.8). The LCD tree requests it too once the kernel fork carries the LCD
+  device-tree fix (Iris enabled as on the OLED; see Video codec). Windows' `adsp_dtbs.elf` and `cdsp_dtbs.elf`
+  get the DT names.
 - LCD GPU zap shader: the LCD tree requests `qcdxkmsuc8380.mbn`, but the LCD unit's DriverStore ships
   `qcdxkmsucpurwa.mbn` instead, and `qcom_scm_pas_init_image()` rejects it with `-EINVAL` (the file is found and
   parsed; the secure world refuses the signed image). An LCD build takes the Qualcomm-signed 8380 shader from
@@ -43,6 +44,18 @@ Windows. Sleep and its wake sources: `docs/sleep.md`. The 5G modem: `docs/modem.
   `usr/lib/firmware/qcom/x1e80100/dell/xps13-9345/qcdxkmsuc8380.mbn.xz` (12088 bytes, sha256 `585f6749…`), and
   `sp11.conf` pins that hash. Step 10 downloads the 177 MB package for an LCD build only. dracut's
   `Denali/*` glob puts the shader into every initramfs, where the GPU probes.
+- LCD video codec firmware: the X1P64100 is the X1E80100 (Hamoa) die, so its Iris block takes the 8380 image, not
+  the purwa `qcvss8380_pa.mbn` its DriverStore ships. An LCD build takes it from Fedora's `qcom-firmware`, member
+  `usr/lib/firmware/qcom/x1e80100/LENOVO/21N1/qcvss8380.mbn.xz` (2314856 bytes, sha256 `71180840…`), pinned in
+  `sp11.conf`. On an LCD unit that copy and Microsoft's both encoded and decoded; a deliberately broken image in
+  the same reload test failed with `firmware download failed -22`, so each reload loaded the file afresh.
+- Which images are interchangeable: the zap shader, the video codec image, the CDSP image and the CDSP's
+  `cdsp_dtbs.elf` carry Qualcomm's signature only and no board code. The ADSP image and `adsp_dtbs.elf` carry the
+  OEM's signature (Microsoft on the Surface), and Microsoft's ADSP image contains the Surface sensor modules
+  (`sns_surface_color`, `sns_surface_sar`, `sns_surface_manager`), so it has no substitute. Tried on an LCD unit,
+  not shipped: the Dell XPS 13 9345 CDSP pair from `qcom-firmware` booted, offered the same five QRTR services and
+  left every sensor working; its one new log line was a failed probe of the CDSP's second QRTR channel
+  (`qcom_smd_qrtr ... -121`). The CDSP's `sleep_statsi.c:537` assert came once per boot with either pair.
 - Not shipped since support 2.3: the `*_dtbs.elf` copies; `*.jsn` (the in-kernel pd-mapper,
   `CONFIG_QCOM_PD_MAPPER=m`, needs none); `qcdxkmsucpurwa.mbn` (the X1P zap shader, which this hardware rejects);
   `qcvss8380_pa.mbn` (the X1P video firmware).
@@ -215,6 +228,13 @@ Windows. Sleep and its wake sources: `docs/sleep.md`. The 5G modem: `docs/modem.
   720p), which is not in the list GStreamer probes for the decoder, so `v4l2h264dec` and `v4l2h265dec` refuse them
   (`not-negotiated`). Relabelled `bt601` (`capssetter`), the H.264 clip decoded to 120 frames in 0.43 s, among
   them all 60 that Cisco's `openh264dec` put out, and the H.265 clip to 120 distinct frames in 0.44 s.
+- LCD (X1P64100) with the device-tree fix and the 8380 image: 1080p30 `v4l2h264enc` and `v4l2h265enc` ran at
+  about 185 frames/s, about 0.06 s of CPU per 300 frames against 1.24 s for `openh264enc`; `v4l2h264dec` and
+  `v4l2h265dec` read both clips back to 300 frames each without the colorimetry relabel.
+- Rate control needs a frame rate. A live source (`pipewiresrc`, caps `framerate=0/1`) leaves the encoder without
+  one and `video_bitrate` is ignored: a 720p camera clip came out at 70 to 94 Mbit/s. Fixed with `videorate !
+  video/x-raw,framerate=30/1` before `v4l2h264enc extra-controls="controls,video_bitrate=4000000"`: 3.81 Mbit/s
+  (High profile with `video/x-h264,profile=high` downstream). The encoder's defaults: 20 Mbit/s VBR, GOP 59.
 
 ## USB-C data
 

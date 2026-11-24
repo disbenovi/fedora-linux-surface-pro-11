@@ -25,6 +25,7 @@ support_inputs() {
     "AUDIO_RELEASE_TAG=$AUDIO_RELEASE_TAG" "UCM_MIC_GAIN=$UCM_MIC_GAIN" "BT_HELPER_SHA256=$BT_HELPER_SHA256" \
     "SECUREBOOT_ESP_DIR=$SECUREBOOT_ESP_DIR" \
     "QCOM_FIRMWARE_LCD_ZAP_MEMBER=$QCOM_FIRMWARE_LCD_ZAP_MEMBER" "QCOM_FIRMWARE_LCD_ZAP_SHA256=$QCOM_FIRMWARE_LCD_ZAP_SHA256" \
+    "QCOM_FIRMWARE_LCD_VIDEO_MEMBER=$QCOM_FIRMWARE_LCD_VIDEO_MEMBER" "QCOM_FIRMWARE_LCD_VIDEO_SHA256=$QCOM_FIRMWARE_LCD_VIDEO_SHA256" \
     | inputs_sha256 "$SPEC_DIR/sp11-surface-support.spec.in" "$FONT_CELL" \
         $(find "$PAYLOAD_DIR" -maxdepth 1 -type f ! -name '*.in' ! -name "$KERNEL_CONFIG_FRAGMENT" | sort)
 }
@@ -52,31 +53,36 @@ rm -rf "$STAGE"; mkdir -p "$STAGE"
 ## 1. Qualcomm platform firmware from the Windows DriverStore (device-bound; newest copy of each file wins,
 ##    the same rule Fedora's qcom-firmware-extract uses): exactly the files the variant's Denali device tree
 ##    requests, under the names it requests them by. Windows ships the DSP device-tree blobs as *_dtbs.elf.
-##    The LCD tree does not enable the video codec, so an LCD unit needs no qcvss8380.mbn. Its DriverStore ships
-##    qcdxkmsucpurwa.mbn instead of the qcdxkmsuc8380.mbn the tree requests, and the secure world rejects purwa
-##    on this hardware (-EINVAL), so an LCD build takes the 8380 shader from Fedora's qcom-firmware.
+##    The LCD's DriverStore ships the purwa images (qcdxkmsucpurwa.mbn, qcvss8380_pa.mbn) instead of the 8380 ones
+##    the tree requests; the X1P64100 is the X1E80100 (Hamoa) die, and the secure world rejects the purwa shader
+##    on it (-EINVAL). An LCD build therefore takes the 8380 GPU shader and video codec firmware from Fedora's
+##    qcom-firmware when Windows has none (both are signed by Qualcomm only).
 FR="$WINDOWS_ROOT/Windows/System32/DriverStore/FileRepository"
 [ -d "$FR" ] || die "Windows DriverStore not found at $FR (is Windows mounted at $WINDOWS_ROOT?)"
 FWD="$STAGE/usr/lib/firmware/qcom/x1e80100/microsoft/Denali"; install -d "$FWD"
 FW_PAIRS=(qcadsp8380.mbn:qcadsp8380.mbn adsp_dtbs.elf:adsp_dtb.mbn qccdsp8380.mbn:qccdsp8380.mbn \
           cdsp_dtbs.elf:cdsp_dtb.mbn qcdxkmsuc8380.mbn:qcdxkmsuc8380.mbn)
-if [ "$SP11_VARIANT" = oled ]; then FW_PAIRS+=(qcvss8380.mbn:qcvss8380.mbn); fi
-install_zap_from_qcom_firmware() {  # install_zap_from_qcom_firmware DEST-NAME
-  local dt=$1 rpm
+FW_PAIRS+=(qcvss8380.mbn:qcvss8380.mbn)
+install_from_qcom_firmware() {  # install_from_qcom_firmware DEST-NAME MEMBER SHA256
+  local dt=$1 member=$2 sha=$3 rpm
   rpm=$(ls -t "$CACHE_DIR/qcom-firmware/f$FEDORA_RELEASE"/qcom-firmware-*.rpm 2>/dev/null | head -1 || true)
-  [ -n "$rpm" ] || die "no qcom-firmware RPM cached (run scripts/10-fetch-sources.sh; an LCD build downloads it for the zap shader)"
-  rpm2cpio "$rpm" | cpio -i --quiet --to-stdout "./$QCOM_FIRMWARE_LCD_ZAP_MEMBER" | xz -d > "$FWD/$dt" \
-    || die "cannot extract $QCOM_FIRMWARE_LCD_ZAP_MEMBER from $(basename "$rpm")"
-  verify_sha256 "$FWD/$dt" "$QCOM_FIRMWARE_LCD_ZAP_SHA256"
-  log "firmware $dt <- $(basename "$rpm"):$QCOM_FIRMWARE_LCD_ZAP_MEMBER (LCD fallback, sha256 ${QCOM_FIRMWARE_LCD_ZAP_SHA256:0:12}...)"
+  [ -n "$rpm" ] || die "no qcom-firmware RPM cached (run scripts/10-fetch-sources.sh; an LCD build downloads it for the 8380 firmware)"
+  rpm2cpio "$rpm" | cpio -i --quiet --to-stdout "./$member" | xz -d > "$FWD/$dt" \
+    || die "cannot extract $member from $(basename "$rpm")"
+  verify_sha256 "$FWD/$dt" "$sha"
+  log "firmware $dt <- $(basename "$rpm"):$member (LCD fallback, sha256 ${sha:0:12}...)"
 }
 for pair in "${FW_PAIRS[@]}"; do
   win=${pair%%:*}; dt=${pair#*:}
   src=$(find "$FR" -maxdepth 2 -type f -iname "$win" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2- || true)
   if [ -z "$src" ]; then
-    if [ "$dt" = qcdxkmsuc8380.mbn ] && [ "$SP11_VARIANT" = lcd ]; then
-      install_zap_from_qcom_firmware "$dt"
-      continue
+    if [ "$SP11_VARIANT" = lcd ]; then
+      case "$dt" in
+        qcdxkmsuc8380.mbn)
+          install_from_qcom_firmware "$dt" "$QCOM_FIRMWARE_LCD_ZAP_MEMBER" "$QCOM_FIRMWARE_LCD_ZAP_SHA256"; continue ;;
+        qcvss8380.mbn)
+          install_from_qcom_firmware "$dt" "$QCOM_FIRMWARE_LCD_VIDEO_MEMBER" "$QCOM_FIRMWARE_LCD_VIDEO_SHA256"; continue ;;
+      esac
     fi
     die "firmware $win not found in $FR"
   fi
@@ -260,6 +266,7 @@ RPM=$(build_rpm "$SPEC_DIR/sp11-surface-support.spec.in" sp11-surface-support "$
   STAGE="$STAGE" VERSION="$VERSION" SKU="$SP11_SKU" VARIANT="$(variant_label)" AUDIO_TAG="$AUDIO_RELEASE_TAG" \
   INPUTS="$INPUTS" MODEM="$MODEM")
 rpm -qpl "$RPM" | grep -x "/usr/lib/firmware/qcom/x1e80100/microsoft/Denali/qcdxkmsuc8380.mbn" >/dev/null || die "RPM lacks GPU zap firmware"
+rpm -qpl "$RPM" | grep -x "/usr/lib/firmware/qcom/x1e80100/microsoft/Denali/qcvss8380.mbn" >/dev/null || die "RPM lacks video codec firmware"
 ! rpm -qpl "$RPM" | grep -x "/usr/lib/firmware/qcom/x1e80100/microsoft/Denali/qcdxkmsucpurwa.mbn" >/dev/null \
   || die "RPM ships the purwa GPU zap shader, which the secure world rejects"
 log "support RPM: $RPM ($(du -h "$RPM" | cut -f1))"

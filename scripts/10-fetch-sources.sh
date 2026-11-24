@@ -82,15 +82,15 @@ if [ "${FORCE:-0}" = 1 ] || ! ls "$WIFI_DIR"/atheros-firmware-*.rpm >/dev/null 2
   rm -f "$WIFI_DIR"/atheros-firmware-*.rpm
   ( cd "$WIFI_DIR" && dnf -q download --releasever="$FEDORA_RELEASE" atheros-firmware ) || die "dnf download atheros-firmware failed"
 fi
-## Fedora's qcom-firmware: an LCD build takes the 8380 GPU zap shader from it (step 30), because the LCD's
-## Windows DriverStore ships qcdxkmsucpurwa.mbn instead, which the secure world rejects. The package is 177 MB,
-## so an OLED build does not download it. Like atheros-firmware, it floats with the repos; step 30 pins the
-## extracted shader's hash.
+## Fedora's qcom-firmware: an LCD build takes the 8380 GPU zap shader and video codec image from it (step 30),
+## because the LCD's Windows DriverStore ships the purwa images instead, and the secure world rejects purwa's
+## shader. The package is 177 MB, so an OLED build does not download it. Like atheros-firmware, it floats with the
+## repos; step 30 pins the extracted files' hashes.
 QFW_DIR="$CACHE_DIR/qcom-firmware/f$FEDORA_RELEASE"
 if [ "$SP11_VARIANT" = lcd ]; then
   mkdir -p "$QFW_DIR"
   if [ "${FORCE:-0}" = 1 ] || ! ls "$QFW_DIR"/qcom-firmware-*.rpm >/dev/null 2>&1; then
-    log "downloading qcom-firmware (Fedora $FEDORA_RELEASE, for the LCD's 8380 zap shader)"
+    log "downloading qcom-firmware (Fedora $FEDORA_RELEASE, for the LCD's 8380 shader and video firmware)"
     rm -f "$QFW_DIR"/qcom-firmware-*.rpm
     ( cd "$QFW_DIR" && dnf -q download --releasever="$FEDORA_RELEASE" qcom-firmware ) || die "dnf download qcom-firmware failed"
   fi

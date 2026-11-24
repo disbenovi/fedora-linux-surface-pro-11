@@ -101,6 +101,7 @@ support. The device results by date are in [`docs/verified.md`](../verified.md).
 - 3.23: the X1P64100 LCD. Step 05 accepts the LCD's SoC and LGD panel and selects
   `qcom/x1p64100-microsoft-denali.dtb`; the support RPM takes the 8380 GPU zap shader from Fedora's
   `qcom-firmware` when the unit's Windows DriverStore ships only `qcdxkmsucpurwa.mbn` (rejected with `-EINVAL`),
-  and ships no video codec firmware because the LCD tree does not enable the codec. `sp11-sensors` 1.16 puts
-  its payload under `/usr/share/qcom/x1e80100/Microsoft/denali-lcd`
+  and the video codec's `qcvss8380.mbn` (the ThinkPad T14s copy) when it ships only `qcvss8380_pa.mbn`. The
+  dracut policy puts the PWM backlight's drivers into the initramfs. `sp11-sensors` 1.16 puts its payload under
+  `/usr/share/qcom/x1e80100/Microsoft/denali-lcd`
   ([`docs/hardware.md`](../hardware.md), Firmware).
